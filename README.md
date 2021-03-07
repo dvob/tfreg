@@ -18,8 +18,13 @@ With the `-template` option you can specify how the namespace, name and provider
 # Local Test
 * Create a DNS record `example.com` which points to `127.0.0.1`
 * Create a TLS key pair (`tls.key` and `tls.crt`) for `example.com` (for example with [pcert](https://github.com/dvob/pcert) or OpenSSL)
-* If you want to host modules from private Gitlab repositories [create a personal access token](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html#creating-a-personal-access-token) and set the environment variable `GITLAB_TOKEN`.
 * Build `go build`
 * Run `./tfreg`
 * Trust your self signed certificate `export SSL_CERT_FILE=$(pwd)/tls.crt`
 * Go to the test dirctory `cd test/` and run `terraform init` and `terraform apply`
+
+
+If you want to host modules from private Gitlab repositories [create a personal access token](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html#creating-a-personal-access-token) and set the environment variable `GITLAB_TOKEN` before you start `tfreg`.  Also make sure that you have configured the Git credential helper correctly before you run `terraform init`. For example:
+```
+git config --global credential.helper '!f() { sleep 1; echo "username=none"; echo "password=${GITLAB_TOKEN}"; }; f'
+```

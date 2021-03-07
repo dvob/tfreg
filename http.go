@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -17,8 +15,7 @@ func newModuleHandler(mp ModuleProvider) http.Handler {
 	handler := mux.NewRouter()
 	handler.HandleFunc("/.well-known/terraform.json", discover)
 	handler.HandleFunc("/mod/{namespace}/{name}/{provider}/versions", version(mp))
-	handler.HandleFunc("/mod/{namespace}/{name}/{provider}/{version}/download", download)
-	handler.HandleFunc("/mod/{namespace}/{name}/{provider}/{version}/blob.tar.gz", blob(mp))
+	handler.HandleFunc("/mod/{namespace}/{name}/{provider}/{version}/download", download(mp))
 	return handler
 }
 
@@ -124,29 +121,19 @@ func version(mp ModuleProvider) http.HandlerFunc {
 	}
 }
 
-func download(w http.ResponseWriter, r *http.Request) {
-	m := getModule(r)
-	version := mux.Vars(r)["version"]
-	w.Header().Add("Content-Type", "application/json")
-	w.Header().Add("X-Terraform-Get", fmt.Sprintf("/mod/%s/%s/%s/%s/blob.tar.gz", m.Namespace, m.Name, m.Provider, version))
-}
-
-func blob(mp ModuleProvider) http.HandlerFunc {
+func download(mp ModuleProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		m := getModule(r)
 		version := mux.Vars(r)["version"]
 
-		reader, err := mp.GetReader(r.Context(), m, version)
+		source, err := mp.GetSource(r.Context(), m, version)
 		if err != nil {
-			log.Print("failed to get blob reader", err)
+			log.Print("could not get module source", err)
 			httpErr(w, err)
 			return
 		}
 
-		_, err = io.Copy(w, reader)
-		if err != nil {
-			log.Print("failed to deliver blob", err)
-			return
-		}
+		w.Header().Add("Content-Type", "application/json")
+		w.Header().Add("X-Terraform-Get", source)
 	}
 }

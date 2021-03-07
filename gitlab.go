@@ -1,13 +1,9 @@
 package main
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
-	"path"
 	"strings"
 	"text/template"
 
@@ -19,6 +15,8 @@ type gitlabModuleProvider struct {
 	mappingTemplate *template.Template
 }
 
+// newGitlabModuleProvider creates a new module provider for Gitlab. If all
+// repositories you want to provide are public you can leave the token empty.
 func newGitlabModuleProvider(token, tmplStr string) (*gitlabModuleProvider, error) {
 	client, err := gitlab.NewClient(token)
 	if err != nil {
@@ -36,15 +34,7 @@ func newGitlabModuleProvider(token, tmplStr string) (*gitlabModuleProvider, erro
 	}, nil
 }
 
-func (g *gitlabModuleProvider) getProjectID(m Module) (string, error) {
-	buf := &bytes.Buffer{}
-	err := g.mappingTemplate.Execute(buf, &m)
-	if err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
-
+// GetVersions returns all tags from a project which starts with v (e.g v0.0.1).
 func (g *gitlabModuleProvider) GetVersions(_ context.Context, m Module) ([]string, error) {
 	projectID, err := g.getProjectID(m)
 	if err != nil {
@@ -65,91 +55,23 @@ func (g *gitlabModuleProvider) GetVersions(_ context.Context, m Module) ([]strin
 	return versions, nil
 }
 
-func (g *gitlabModuleProvider) GetReader(_ context.Context, m Module, version string) (io.Reader, error) {
+// GetSource returns the source of a certain version.
+// See https://www.terraform.io/docs/language/modules/sources.html#generic-git-repository for details.
+func (g *gitlabModuleProvider) GetSource(_ context.Context, m Module, version string) (string, error) {
 	projectID, err := g.getProjectID(m)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
+	source := fmt.Sprintf("git::https://gitlab.com/%s.git?ref=v%s", projectID, version)
+	return source, nil
+}
 
-	tag, _, err := g.client.Tags.GetTag(projectID, "v"+version)
+// getProjectID maps a module to a Gitlab project ID.
+func (g *gitlabModuleProvider) getProjectID(m Module) (string, error) {
+	buf := &bytes.Buffer{}
+	err := g.mappingTemplate.Execute(buf, &m)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-
-	r, w := io.Pipe()
-	go func() {
-		sha := tag.Commit.ID
-		format := "tar"
-
-		opts := &gitlab.ArchiveOptions{
-			Format: &format,
-			SHA:    &sha,
-		}
-		_, err := g.client.Repositories.StreamArchive(projectID, w, opts)
-		if err != nil {
-			w.CloseWithError(err)
-		}
-		w.Close()
-	}()
-
-	return gzipReader(tarStripDirReader(r, 1)), nil
-}
-
-func gzipReader(r io.Reader) io.Reader {
-	newReader, w := io.Pipe()
-	gzipWriter := gzip.NewWriter(w)
-	go func() {
-		_, err := io.Copy(gzipWriter, r)
-		if err != nil {
-			w.CloseWithError(err)
-		}
-		gzipWriter.Close()
-		w.Close()
-	}()
-	return newReader
-}
-
-func tarStripDirReader(origTar io.Reader, n uint) io.Reader {
-	r, w := io.Pipe()
-	tr := tar.NewReader(origTar)
-	newTar := tar.NewWriter(w)
-	go func() {
-		for {
-			hdr, err := tr.Next()
-			if err == io.EOF {
-				break // End of archive
-			}
-			if err != nil {
-				w.CloseWithError(err)
-				return
-			}
-
-			if hdr.Typeflag == tar.TypeXGlobalHeader {
-				_, err := io.Copy(io.Discard, tr)
-				if err != nil {
-					w.CloseWithError(fmt.Errorf("can't strip %d elements from '%s'", n, hdr.Name))
-					return
-				}
-				continue
-			}
-
-			// TODO: not sure if i should use os.PathSeperator here
-			parts := strings.Split(hdr.Name, "/")
-			if len(parts) <= int(n) {
-				w.CloseWithError(fmt.Errorf("can't strip %d elements from '%s'", n, hdr.Name))
-				return
-			}
-
-			hdr.Name = path.Join(parts[n:]...)
-
-			newTar.WriteHeader(hdr)
-			if _, err := io.Copy(newTar, tr); err != nil {
-				w.CloseWithError(err)
-				return
-			}
-		}
-		newTar.Close()
-		w.Close()
-	}()
-	return r
+	return buf.String(), nil
 }

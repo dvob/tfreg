@@ -17,7 +17,6 @@ func main() {
 	flag.StringVar(&tlsKey, "key", "tls.key", "TLS key file")
 	flag.StringVar(&tlsCert, "cert", "tls.crt", "TLS cert file")
 	flag.StringVar(&gitlabMappingTemplate, "template", "{{.Namespace}}/{{.Name}}", "TLS cert file")
-
 	flag.Parse()
 
 	gitlabModuleProvider, err := newGitlabModuleProvider(os.Getenv("GITLAB_TOKEN"), gitlabMappingTemplate)
